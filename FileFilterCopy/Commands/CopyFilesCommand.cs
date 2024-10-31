@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using FileFilterCopy.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace FileFilterCopy.Commands;
@@ -6,8 +6,8 @@ namespace FileFilterCopy.Commands;
 public interface ICopyFilesCommand
 {
     void Execute(
-        string sourceDirectionPath,
-        string destinationDirectionPath,
+        string sourceDirectoryPath,
+        string destinationDirectoryPath,
         string[] ignorePatterns,
         bool skipExistingDirectories = false,
         bool skipExistingFiles = false);
@@ -23,113 +23,104 @@ public class CopyFilesCommand : ICopyFilesCommand
     }
 
     public void Execute(
-        string sourceDirectionPath,
-        string destinationDirectionPath,
+        string sourceDirectoryPath,
+        string destinationDirectoryPath,
         string[] ignorePatterns,
         bool skipExistingDirectories = false,
         bool skipExistingFiles = false)
     {
-        var ignoreRegexes = ignorePatterns
-            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
-            .Select(pattern => new Regex(IgnorePatternToRegex(pattern)))
-            .ToArray();
+        var pathFilter = new PathFilter(ignorePatterns);
 
         CopyFiles(
-            sourceDirectionPath,
-            destinationDirectionPath,
-            ignoreRegexes,
+            sourceDirectoryPath,
+            destinationDirectoryPath,
+            pathFilter,
             skipExistingDirectories,
             skipExistingFiles);
     }
 
-    private static string IgnorePatternToRegex(string pattern)
-    {
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return string.Empty;
-        }
-
-        return Regex.Escape(pattern)
-            .Replace(@"\*\*", ".*") // ** any characters
-            .Replace(@"\*", "[^/]*") // * any characters except /
-            .Replace(@"\?", "[^/]") // ? one any character except /
-            .Replace(@"\[", "[")
-            .Replace(@"\]", "]");
-    }
-
     private void CopyFiles(
-        string sourceDirectionPath,
-        string destinationDirectionPath,
-        Regex[] ignoreRegexes,
+        string sourceDirectoryPath,
+        string destinationDirectoryPath,
+        PathFilter pathFilter,
         bool skipExistingDirectories,
         bool skipExistingFiles)
     {
-        if (!Directory.Exists(sourceDirectionPath))
+        if (!Directory.Exists(sourceDirectoryPath))
         {
-            _logger.LogError("Source directory doesn't exist: {path}", sourceDirectionPath);
+            _logger.LogError("Source directory doesn't exist: {path}", sourceDirectoryPath);
             return;
         }
 
-        if (!Directory.Exists(destinationDirectionPath))
+        // if path is not ignored and directory creation failed
+        if (!pathFilter.ShouldIgnoreDirectoryPath(sourceDirectoryPath) &&
+            !TryCreateDestinationDirectory(destinationDirectoryPath))
         {
-            try
-            {
-                Directory.CreateDirectory(destinationDirectionPath);
-                _logger.LogInformation("Destination directory has been created: {path}", destinationDirectionPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "{message}", ex.Message);
-                return;
-            }
+            return;
         }
 
-        foreach (var file in Directory.GetFiles(sourceDirectionPath))
+        foreach (var srcFilePath in Directory.GetFiles(sourceDirectoryPath))
         {
-            if (ShouldIgnore(file, ignoreRegexes)) continue;
+            if (pathFilter.ShouldIgnoreFilePath(srcFilePath)) continue;
 
-            var destinationFilePath = Path.Combine(destinationDirectionPath, Path.GetFileName(file));
+            var destinationFilePath = Path.Combine(destinationDirectoryPath, Path.GetFileName(srcFilePath));
 
             if (skipExistingFiles && File.Exists(destinationFilePath)) continue;
 
-            try
-            {
-                File.Copy(file, destinationFilePath, true);
-                _logger.LogInformation("File copied to: {path}", destinationFilePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "{message}", ex.Message);
-            }
+            CopyFile(srcFilePath, destinationFilePath);
         }
 
-        foreach (var directory in Directory.GetDirectories(sourceDirectionPath))
+        foreach (var srcDirectoryPath in Directory.GetDirectories(sourceDirectoryPath))
         {
-            if (ShouldIgnore(directory, ignoreRegexes)) continue;
-
-            var destinationSubdirectoryPath = Path.Combine(destinationDirectionPath, Path.GetFileName(directory));
+            var destinationSubdirectoryPath = Path.Combine(
+                destinationDirectoryPath,
+                Path.GetFileName(srcDirectoryPath));
 
             if (skipExistingDirectories && Directory.Exists(destinationSubdirectoryPath)) continue;
 
             CopyFiles(
-                directory,
+                srcDirectoryPath,
                 destinationSubdirectoryPath,
-                ignoreRegexes,
+                pathFilter,
                 skipExistingDirectories,
                 skipExistingFiles);
         }
     }
 
-    private static bool ShouldIgnore(string path, Regex[] ignoreRegexes)
+    private bool TryCreateDestinationDirectory(string path)
     {
-        var fileAttributes = File.GetAttributes(path);
-        path = path.Replace("\\", "/");
-
-        if (fileAttributes.HasFlag(FileAttributes.Directory) && !path.EndsWith('/'))
+        if (Directory.Exists(path))
         {
-            path += "/";
+            return true;
         }
 
-        return ignoreRegexes.Any(regex => regex.IsMatch(path));
+        try
+        {
+            Directory.CreateDirectory(path);
+            _logger.LogInformation("Destination directory has been created: {path}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{message}", ex.Message);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void CopyFile(string sourceFilePath, string destinationFilePath, bool overwrite = true)
+    {
+        try
+        {
+            // create all directories for the file if they do not exist
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath) ?? string.Empty);
+
+            File.Copy(sourceFilePath, destinationFilePath, overwrite);
+            _logger.LogInformation("File copied to: {path}", destinationFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{message}", ex.Message);
+        }
     }
 }

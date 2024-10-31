@@ -1,8 +1,8 @@
 ﻿using FileFilterCopy.Commands;
 using Microsoft.Extensions.Logging;
 
-const string SourceDirectionPath = @"D:\Programming projects";
-const string DestinationDirectionPath = @"F:\Programming projects";
+const string SourceDirectoryPath = @"D:\Programming projects";
+const string DestinationDirectoryPath = @"F:\Programming projects";
 const bool SkipExistingDirectories = false;
 const bool SkipExistingFiles = false;
 
@@ -11,14 +11,15 @@ string[] ignorePatterns =
     // Paths
     "D:/Programming projects/.git/",
     "D:/Programming projects/.gitignore",
-    "D:/Programming projects/C#/Ip Country Dataset/Ip Country Dataset/Resources/ipv4_ranges_by_country/",
-    "D:/Programming projects/C#/Ip Country Dataset/Ip Country Dataset/Resources/ipv6_ranges_by_country/",
-    "D:/Programming projects/C#/Ip Country Dataset/Ip Country Dataset/Resources/aggregate_ipv4.csv",
-    "D:/Programming projects/C#/Ip Country Dataset/Ip Country Dataset/Resources/aggregate_ipv6.csv",
+    "D:/Programming projects/C#/Ip Country Dataset/IpCountryDataset/Resources/**",
+
+    // Exclude from ignoring
+    "!D:/Programming projects/C#/Ip Country Dataset/IpCountryDataset/Resources/country.csv",
 
     // Directories
     "/[Bb]in/",
     "/[Oo]bj/",
+    "/target/",
     "/node_modules/",
     "/.vs/",
     "/.idea/",
@@ -34,8 +35,8 @@ var copyFilesCommand = new CopyFilesCommand(logger);
 logger.LogInformation("Copying files ...");
 
 copyFilesCommand.Execute(
-    SourceDirectionPath,
-    DestinationDirectionPath,
+    SourceDirectoryPath,
+    DestinationDirectoryPath,
     ignorePatterns,
     SkipExistingDirectories,
     SkipExistingFiles);
